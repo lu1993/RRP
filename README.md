@@ -88,4 +88,4 @@ Ensemble learning involves creating base prediction algorithms and then combine 
 
 
 ## **Result**
-The RF gives the lowest RMSE 1,699,123.
+The RF gives best performance regarding CV score and accuracy.
