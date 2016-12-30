@@ -94,7 +94,7 @@ linear4=lm(lrevenue~ltime+log(p28),data=train_new)
 summary(linear4)
 linear5=lm(lrevenue~ltime,data=train_new)
 summary(linear5)
-anova(linear5,linear4,test='F') # test can be “Rao”, “LRT”, “Chisq”, “F”, “Cp”
+anova(linear5,linear4,test='F') 
 anova(linear4,linear3,test='F')
 # linear 4 is the best
 
