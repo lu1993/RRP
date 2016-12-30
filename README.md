@@ -3,7 +3,7 @@
 The objective of TFI project is to develop a model and a set of preprocess procedures to accurately predict a cross-sectional sample of Turkish restaurant revenues collected in a year.
 
 ## **Data**
-The dataset consists of a training and test set with 137 and 100,000 samples respectively. This is interesting in itself since such a small training set is presented relative to the test set, although there are some junk data in the test set to avoid overfitting. 
+The dataset consists of a training and test set with 137 and 100,000 samples respectively. This is interesting in itself since such a small training set is presented relative to the test set.(there are some junk data in the test set to avoid overfitting.) 
 
 There are 42 potential explanatory variables, including ID, open date, city, city group, type and 37 obfuscated variables (P1,P2,...,P37) within 3 categories: demographic data, commerical data and real estate data. The response variable is annual revenue.
 
