@@ -1,93 +1,61 @@
-## setting working directory
-path <- 'C:Users/lcao/Desktop/TFI'
-setwd(path)
+install.packages('randomForest')
+library('randomForest')
+install.packages('mice')
+library(mice)
+
+train=read.csv("/Users/lusou/Documents/2015autumn course/374/374data analysis/train.csv")
+test=read.csv("/Users/lusou/Documents/2015autumn course/374/374data analysis/test.csv")
+
+n.train=nrow(train)
+
+test$revenue <- 1
+myData <- rbind(train, test)
+rm(train, test)
+
+#Tranform Time
+myData$Open.Date <- as.POSIXlt("01/01/2015", format="%m/%d/%Y") - as.POSIXlt(myData$Open.Date, format="%m/%d/%Y")
+myData$Open.Date <- as.numeric(myData$Open.Date / 1000) #Scale for factors
+
+#Consolidate Cities
+myData$City                                      <- as.character(myData$City)
+myData$City[myData$City.Group == "Other"]        <- "Other"
+myData$City[myData$City == unique(myData$City)[4]] <- unique(myData$City)[2]
+myData$City                                      <- as.factor(myData$City)
+myData$City.Group                                <- NULL
+
+#Consolidate Types
+myData$Type <- as.character(myData$Type)
+myData$Type[myData$Type=="DT"] <- "IL"
+myData$Type[myData$Type=="MB"] <- "FC"
+myData$Type <- as.factor(myData$Type)
+
+#impute data
+myData[, paste("P", 1:37, sep="")] <- mice(myData[, paste("P", 1:37, sep="")])
+
+#Log Transform P Variables and Revenue
+myData[, paste("P", 1:37, sep="")] <- log(1 +myData[, paste("P", 1:37, sep="")])
+myData$revenue <- log(myData$revenue)
+
+#Random Forest
+set.seed(24601)
+model <- randomForest(revenue~., data=myData[1:n.train,], importance=TRUE, mtry = 15, ntree=50000, nPerm=40, nodesize=20)
+
+#Make a Prediction
+prediction <- predict(model, myData[c(1:n.train), ])
+
+#compute RMSE
+RMSE=sqrt(mean((prediction-myData$revenue[1:n.train])^2)) # 0.326766
 
 
-## loading libraries
-library(caret)
-library(dummies)
-library(plyr)
+#Make Submission
+submit<-as.data.frame(cbind(seq(0, length(prediction) - 1, by=1), exp(prediction)))
+colnames(submit)<-c("Id","Prediction")
+write.csv(submit,"submission.csv",row.names=FALSE,quote=FALSE)
 
-
-## loading data (edit the paths)
-train <- read.csv("./train.csv", stringsAsFactors=F)
-test <- read.csv("./test.csv", stringsAsFactors=F)
-
-
-## cleaning data
-panel <- rbind(train[,-ncol(train)], test)
-
-## creating feature variables
-panel$year <- substr(as.character(panel$Open.Date),7,10)
-panel$month <- substr(as.character(panel$Open.Date),1,2)
-panel$day <- substr(as.character(panel$Open.Date),4,5)
-
-panel$Date <- as.Date(strptime(panel$Open.Date, "%m/%d/%Y"))
-
-panel$days <- as.numeric(as.Date("2014-02-02")-panel$Date)
-
-panel$City.Group <- as.factor(panel$City.Group)
-
-panel$Type[panel$Type == "DT"] <- "IL"
-panel$Type[panel$Type == "MB"] <- "FC"
-panel$Type <- as.factor(panel$Type)
-
-panel <- subset(panel, select = -c(Open.Date, Date, City))
-
-# converting some categorical variables into dummies
-panel <- dummy.data.frame(panel, names=c("P14", "P15", "P16", "P17", "P18", "P19", "P20", "P21", "P22", "P23", "P24", "P25", "P30", "P31", "P32", "P33", "P34", "P35", "P36", "P37"), all=T)
-
-ldf <- lapply(1:ncol(panel), function(k)
-{
-  return(data.frame("column" = colnames(panel)[k],
-                    "unique" = length(unique(panel[1:nrow(train),k]))))
-})
-
-ldf <- ldply(ldf, data.frame)
-
-# removing variables with unique values
-panel <- panel[,!names(panel) %in% ldf$column[ldf$unique == 1]]
-
-# removing highly correlated variables
-for (i in (6:ncol(panel)))
-{
-  panel[,i] <- as.numeric(panel[,i])
+#unique variables
+up=vector(length=37)
+for(i in 1:37){
+  up[i]=length(unique(test[,i+5]))-length(unique(train[,i+5]))
 }
-
-cor <- cor(panel[1:nrow(train), 6:ncol(panel)])
-high_cor <- findCorrelation(cor, cutoff = 0.99)
-
-high_cor <- high_cor[high_cor != 186]
-
-panel <- panel[,-c(high_cor+5)]
-
-# splitting into train and test
-X_train <- panel[1:nrow(train),-1]
-X_test <- panel[(nrow(train)+1):nrow(panel),]
-
-# building model on log of revenue
-result <- log(train$revenue)
-
-
-## Random Forest
-source("./Codes/RandomForest_R.R")
-
-# 5-fold cross validation and scoring
-model_rf_1 <- RandomForestRegression_CV(X_train,result,X_test,cv=5,ntree=25,nodesize=5,seed=235,metric="rmse")
-model_rf_2 <- RandomForestRegression_CV(X_train,result,X_test,cv=5,ntree=25,nodesize=5,seed=357,metric="rmse")
-model_rf_3 <- RandomForestRegression_CV(X_train,result,X_test,cv=5,ntree=25,nodesize=5,seed=13,metric="rmse")
-model_rf_4 <- RandomForestRegression_CV(X_train,result,X_test,cv=5,ntree=25,nodesize=5,seed=753,metric="rmse")
-model_rf_5 <- RandomForestRegression_CV(X_train,result,X_test,cv=5,ntree=25,nodesize=5,seed=532,metric="rmse")
-
-
-## submission
-test_rf_1 <- model_rf_1[[2]]
-test_rf_2 <- model_rf_2[[2]]
-test_rf_3 <- model_rf_3[[2]]
-test_rf_4 <- model_rf_4[[2]]
-test_rf_5 <- model_rf_5[[2]]
-
-submit <- data.frame("Id" = test_rf_1$Id,
-                     "Prediction" = 0.2*exp(test_rf_1$pred_rf) + 0.2*exp(test_rf_2$pred_rf) + 0.2*exp(test_rf_3$pred_rf) + 0.2*exp(test_rf_4$pred_rf) + 0.2*exp(test_rf_5$pred_rf))
-
-write.csv(submit, "./submit.csv", row.names=F)
+barplot(up,xlab='P-variables index',ylab='additional unique values in test dataset',type='b',axes=TRUE)
+axis(1,seq(1,37,1))
