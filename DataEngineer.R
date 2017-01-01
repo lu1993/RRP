@@ -123,13 +123,6 @@ test$Type <- factor(test$Type) # refactor
 # use kmeans for cities
 # subtract only the relevant P-variables
 cityMatrix <- train[,-seq(1,5)][,c(2,5,6,15,23,24,27,34)]
-dbind <- c()
-for(i in 2:30){
-  km <- cclust(as.matrix(cityMatrix),i)
-  dbind <- c(dbind,DB(km$centers,km$withinss,i))
-}
-plot(dbind,main='DB Index of P-Variables Clustering',xlab='K',ylab='DB Measure')
-text(dbind,labels=c(2:30),cex=0.7,pos=3)
 # apply the clustering centroids to both training and test set
 k <- 20
 km <- cclust(cityMatrix,k)
