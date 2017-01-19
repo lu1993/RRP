@@ -1,61 +1,70 @@
-install.packages('randomForest')
-library('randomForest')
-install.packages('mice')
-library(mice)
+#***********************************************************
+# random forest
+#***********************************************************
+# if impute missing values
+Train <- imputed.train
+Test <- imputed.test
 
-train=read.csv("/Users/lusou/Documents/2015autumn course/374/374data analysis/train.csv")
-test=read.csv("/Users/lusou/Documents/2015autumn course/374/374data analysis/test.csv")
+# if don't impute missing values
+Train <- train
+Test <- test
 
-n.train=nrow(train)
+# if cluster city using KNN
+Train$City <- as.factor(train.clusteredCity)
+Test$City <- as.factor(test.clusterCity)
 
-test$revenue <- 1
-myData <- rbind(train, test)
-rm(train, test)
+# if don't cluster city using KNN
+Train$City <- as.factor(Train$City)
+Test$City <- as.factor(Test$City)
 
-#Tranform Time
-myData$Open.Date <- as.POSIXlt("01/01/2015", format="%m/%d/%Y") - as.POSIXlt(myData$Open.Date, format="%m/%d/%Y")
-myData$Open.Date <- as.numeric(myData$Open.Date / 1000) #Scale for factors
+# remove near zero variance variables
+print(nearZeroVar(Train))
 
-#Consolidate Cities
-myData$City                                      <- as.character(myData$City)
-myData$City[myData$City.Group == "Other"]        <- "Other"
-myData$City[myData$City == unique(myData$City)[4]] <- unique(myData$City)[2]
-myData$City                                      <- as.factor(myData$City)
-myData$City.Group                                <- NULL
+# remove highly correlated variables
+nums <- sapply(Train, is.numeric)
+hc <- sort(findCorrelation(cor(Train[,nums]),cutoff = 0.75))
+colnames(Train[,nums])[hc]
+reduced.train <- Train[,which(!colnames(Train)%in%colnames(Train[,nums])[hc])]
+dim(reduced.train) # 137 19
+dim(Train) # 137 44
+length(hc) # 25
 
-#Consolidate Types
-myData$Type <- as.character(myData$Type)
-myData$Type[myData$Type=="DT"] <- "IL"
-myData$Type[myData$Type=="MB"] <- "FC"
-myData$Type <- as.factor(myData$Type)
-
-#impute data
-myData[, paste("P", 1:37, sep="")] <- mice(myData[, paste("P", 1:37, sep="")])
-
-#Log Transform P Variables and Revenue
-myData[, paste("P", 1:37, sep="")] <- log(1 +myData[, paste("P", 1:37, sep="")])
-myData$revenue <- log(myData$revenue)
-
-#Random Forest
-set.seed(24601)
-model <- randomForest(revenue~., data=myData[1:n.train,], importance=TRUE, mtry = 15, ntree=50000, nPerm=40, nodesize=20)
-
-#Make a Prediction
-prediction <- predict(model, myData[c(1:n.train), ])
-
-#compute RMSE
-RMSE=sqrt(mean((prediction-myData$revenue[1:n.train])^2)) # 0.326766
-
-
-#Make Submission
-submit<-as.data.frame(cbind(seq(0, length(prediction) - 1, by=1), exp(prediction)))
-colnames(submit)<-c("Id","Prediction")
-write.csv(submit,"submission.csv",row.names=FALSE,quote=FALSE)
-
-#unique variables
-up=vector(length=37)
-for(i in 1:37){
-  up[i]=length(unique(test[,i+5]))-length(unique(train[,i+5]))
+# run rf 100 times with different samples to compute average rmse
+rmse.vec <- c()
+model.list <- list()
+for(i in 1:100){
+  TrainIndex <- createDataPartition(y = reduced.train$revenue, p = 0.7, list = FALSE)
+  Train.train <- reduced.train[TrainIndex,]
+  Train.test <- reduced.train[-TrainIndex,]
+  
+  model <- randomForest(revenue~., data = Train.train, importance = T)
+  res <- Train.test$revenue - predict(model, Train.test)
+  rmse <- sqrt(mean(res^2))
+  rmse.vec <- c(rmse.vec, rmse)
+  
+  model.list[[i]] <- model
 }
-barplot(up,xlab='P-variables index',ylab='additional unique values in test dataset',type='b',axes=TRUE)
-axis(1,seq(1,37,1))
+
+# rank feature importance using rf with cv
+trControl <- trainControl(method = 'repeatedcv', number = 2, repeats = 3)
+model <- train(revenue~., data = reduced.train, method = 'rf', trControl = trControl)
+importance <- varImp(model)
+data.frame('variable' = row.names(importance)[order(importance$Overall, decreasing = TRUE)],
+           'importance' = importance[order(importance$Overall, decreasing = TRUE),])
+# "Open.Year"  "Open.Dur"   "P24"        "P28"        "P4"         "P25"        "P34"        "P1"         "P20"        "P23"        "P17"        "P21"        "P36"        "P37"       
+# "P18"        "P7"         "P30"        "P26"        "P16"        "P2"         "City"       "City.Group" "P32"        "P6"         "P5"         "P35"        "P22"        "P10"       
+# "P31"        "P8"         "P33"        "P3"         "P13"        "P11"        "P14"        "P29"        "P15"        "P9"         "P12"        "P27"        "P19"        "Type"      
+# "Open.Month"
+
+# the top two important variables are Open.Year and Open.Dur. 
+# These correspond with the result of CV-RFE based on linear model
+
+
+# apply average of models to test
+pred.test <- rep(0, length.out = dim(reduced.test)[1])
+for(i in 1:100){
+  model <- model.list[[i]]
+  pred <- predict(model, data=reduced.test[,colnames(reduced.test)[which(colnames(reduced.test)!='revenue')]])
+  pred.test <- pred.test + pred
+}
+pred.test <- pred.test/100
